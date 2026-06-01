@@ -176,3 +176,6 @@ data/
 /apps/frontend/dist/
 *.pid
 .DS_Store
+
+qa_output/
+*.zip
