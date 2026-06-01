@@ -416,9 +416,7 @@ class LLMReviewer:
                     )
         return approved
 
-    def _apply_approved_changes(
-        self, original: list, approved_changes: list
-    ) -> list:
+    def _apply_approved_changes(self, original: list, approved_changes: list) -> list:
         """在原始数据上直接应用已批准的改动。
 
         - reorder：将指定 item 移到目标 index，其余 item 保持相对顺序填空。
@@ -512,15 +510,15 @@ class LLMReviewer:
         )
 
         if resp.status_code != 200:
-            raise ValueError(
-                f"LLM API 返回状态 {resp.status_code}：{resp.text[:400]}"
-            )
+            raise ValueError(f"LLM API 返回状态 {resp.status_code}：{resp.text[:400]}")
 
         resp_data = resp.json()
         content: str = resp_data["choices"][0]["message"]["content"]
         finish_reason = resp_data["choices"][0].get("finish_reason", "unknown")
 
-        logger.info("LLM 返回：finish_reason=%s，长度=%d 字符", finish_reason, len(content))
+        logger.info(
+            "LLM 返回：finish_reason=%s，长度=%d 字符", finish_reason, len(content)
+        )
         logger.debug("LLM 原始返回内容:\n%s", content)
 
         try:
@@ -545,8 +543,7 @@ class LLMReviewer:
         if not changes:
             return True
         valid_keys = {
-            (item.get("page"), tuple(item.get("bbox_2d") or []))
-            for item in original
+            (item.get("page"), tuple(item.get("bbox_2d") or [])) for item in original
         }
         for change in changes:
             key = (change.get("page"), tuple(change.get("bbox_2d") or []))

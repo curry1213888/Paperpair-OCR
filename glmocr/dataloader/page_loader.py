@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import os
 import base64
+import time
 from io import BytesIO
 from typing import TYPE_CHECKING, Dict, Any, List, Tuple, Union
 
 from PIL import Image
 
-
-from glmocr.utils.image_utils import load_image_to_base64
+from glmocr.utils.image_utils import load_image_to_base64, pdf_to_images_pil
 from glmocr.utils.logging import get_logger, get_profiler
 
 Image.MAX_IMAGE_PIXELS = None

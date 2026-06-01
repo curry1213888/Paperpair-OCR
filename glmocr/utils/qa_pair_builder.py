@@ -12,9 +12,7 @@ from typing import Any, Dict, List
 _QUESTION_TYPE_RE = re.compile(
     r"(单选题|多选题|填空题|解答题|判断题)(?:[-－—][^\s(（]+)?"
 )
-_DIFFICULTY_RE = re.compile(
-    r"(容易|适中|困难)\s*[（(]\s*(0\.\d+)\s*[）)]"
-)
+_DIFFICULTY_RE = re.compile(r"(容易|适中|困难)\s*[（(]\s*(0\.\d+)\s*[）)]")
 _QUESTION_NUM_RE = re.compile(r"(?:^|\n)\s*(\d+)\.\s")
 _FOOTER_RE = re.compile(
     r"(?:今日\s*\d+次组卷|相似题\s*纠错|详情\s*收藏|加入试题篮).*$",
@@ -165,9 +163,7 @@ def _split_answers(answer_text: str) -> List[str]:
 
 
 # 块内多段落头：同一 OCR 块中可能同时含【分析】与【详解】
-_SECTION_HEADER_RE = re.compile(
-    r"[【\[]?\s*(答案|分析|详解)\s*[】\]]?\s*[:：]?\s*"
-)
+_SECTION_HEADER_RE = re.compile(r"[【\[]?\s*(答案|分析|详解)\s*[】\]]?\s*[:：]?\s*")
 
 
 def _section_key_from_label(label: str) -> str:
@@ -205,7 +201,9 @@ def _split_content_by_section_headers(content: str) -> List[tuple[str, str]]:
     segments: List[tuple[str, str]] = []
     for i, m in enumerate(matches):
         section = _section_key_from_label(m.group(1))
-        body = content[m.end() : matches[i + 1].start() if i + 1 < len(matches) else len(content)]
+        body = content[
+            m.end() : matches[i + 1].start() if i + 1 < len(matches) else len(content)
+        ]
         segments.append((section, body.strip()))
     return segments
 
@@ -253,7 +251,9 @@ def _collect_answer_sections(items: List[Dict[str, Any]]) -> tuple[List[str], st
     return answers, analysis, detail
 
 
-def build_qa_array(question_json_path: str | Path, answer_json_path: str | Path) -> List[Dict[str, Any]]:
+def build_qa_array(
+    question_json_path: str | Path, answer_json_path: str | Path
+) -> List[Dict[str, Any]]:
     """Build one QA record array from a question JSON and an answer JSON."""
     q_items = _read_items(question_json_path)
     a_items = _read_items(answer_json_path)
@@ -285,7 +285,9 @@ def build_qa_array(question_json_path: str | Path, answer_json_path: str | Path)
     return [record]
 
 
-def print_qa_array(question_json_path: str | Path, answer_json_path: str | Path) -> None:
+def print_qa_array(
+    question_json_path: str | Path, answer_json_path: str | Path
+) -> None:
     """Build and print QA array to console."""
     result = build_qa_array(question_json_path, answer_json_path)
     print(json.dumps(result, ensure_ascii=False, indent=2))

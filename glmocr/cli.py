@@ -296,9 +296,7 @@ def main():
                             else "unknown"
                         )
                         pbar.update(1)
-                        tqdm.write(
-                            f"提取失败: {file_name}: {e}", file=sys.stderr
-                        )
+                        tqdm.write(f"提取失败: {file_name}: {e}", file=sys.stderr)
                         continue
 
                     file_name = (

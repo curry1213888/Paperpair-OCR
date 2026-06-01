@@ -249,7 +249,7 @@ glmocr parse "D:\path\to\image.png" --stdout --no-save
 
 **Ollama 连接失败**
 
-- 确认 `ollama serve` 或 Ollama 桌面端在运行  
+- 确认 `ollama serve` 或 Ollama 桌面端在运行
 - `config.yaml` 中 `api_host` / `api_port` 与 `ollama list` 可用时一致
 
 **版面模型下载慢**
@@ -258,8 +258,8 @@ glmocr parse "D:\path\to\image.png" --stdout --no-save
 
 **LLM 审核报错「提取失败」**
 
-- 检查 `.env` 中 API Key、模型名、余额  
-- 可暂时 `LLM_REVIEWER_ENABLED=false` 先跑通 OCR  
+- 检查 `.env` 中 API Key、模型名、余额
+- 可暂时 `LLM_REVIEWER_ENABLED=false` 先跑通 OCR
 - 大图（region 很多）易触发超时或输出截断，可增大 `LLM_REVIEWER_MAX_TOKENS` / `LLM_REVIEWER_TIMEOUT`
 
 **批量时某一题失败**

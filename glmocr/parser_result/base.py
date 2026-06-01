@@ -99,7 +99,11 @@ class BaseParserResult(ABC):
                 except json.JSONDecodeError:
                     pass
             with open(json_file, "w", encoding="utf-8") as f:
-                if isinstance(json_data, list) and json_data and isinstance(json_data[0], list):
+                if (
+                    isinstance(json_data, list)
+                    and json_data
+                    and isinstance(json_data[0], list)
+                ):
                     # 多页嵌套结构：展平并只保留 index/label/content
                     flat = []
                     idx = 0
@@ -109,7 +113,9 @@ class BaseParserResult(ABC):
                             content = item.get("content", "")
                             if label == "image":
                                 content = item.get("image_path", "")
-                            flat.append({"index": idx, "label": label, "content": content})
+                            flat.append(
+                                {"index": idx, "label": label, "content": content}
+                            )
                             idx += 1
                     json.dump(flat, f, ensure_ascii=False, indent=2)
                 elif isinstance(json_data, (dict, list)):
@@ -126,7 +132,11 @@ class BaseParserResult(ABC):
             # 原始输出改存为 _model_raw.json，审核后结果存为 _model.json；
             # 否则保持原有命名 _model.json（向后兼容）。
             has_review = self.reviewed_raw_json_result is not None
-            raw_file_name = f"{base_name}_model_raw.json" if has_review else f"{base_name}_model.json"
+            raw_file_name = (
+                f"{base_name}_model_raw.json"
+                if has_review
+                else f"{base_name}_model.json"
+            )
             raw_file = output_path / raw_file_name
             try:
                 with open(raw_file, "w", encoding="utf-8") as f:
@@ -139,7 +149,9 @@ class BaseParserResult(ABC):
             reviewed_file = output_path / f"{base_name}_model.json"
             try:
                 with open(reviewed_file, "w", encoding="utf-8") as f:
-                    json.dump(self.reviewed_raw_json_result, f, ensure_ascii=False, indent=2)
+                    json.dump(
+                        self.reviewed_raw_json_result, f, ensure_ascii=False, indent=2
+                    )
             except Exception as e:
                 logger.warning("Failed to save reviewed JSON: %s", e)
 

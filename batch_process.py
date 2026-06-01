@@ -103,9 +103,7 @@ def _ocr_and_save(parser, img_path: Path, ocr_output_dir: Path) -> Path:
     stem = img_path.stem
     json_path = ocr_output_dir / stem / f"{stem}.json"
     if not json_path.exists():
-        raise FileNotFoundError(
-            f"OCR 结果 JSON 未找到，期望路径：{json_path}"
-        )
+        raise FileNotFoundError(f"OCR 结果 JSON 未找到，期望路径：{json_path}")
     return json_path
 
 
