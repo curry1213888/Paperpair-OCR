@@ -449,7 +449,9 @@ class LLMReviewer:
 
                 before_stripped = before.strip()
                 after_stripped = after.strip()
-                if before_stripped and len(after_stripped) < int(len(before_stripped) * 0.85):
+                if before_stripped and len(after_stripped) < int(
+                    len(before_stripped) * 0.85
+                ):
                     logger.debug(
                         "拒绝 ocr_fix：疑似截断（before=%d, after=%d）",
                         len(before_stripped),

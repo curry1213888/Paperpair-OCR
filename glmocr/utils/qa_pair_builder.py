@@ -9,7 +9,9 @@ from typing import Any, Dict, List
 
 # 题型大类（仅匹配大类本身，不吞并后续文本）
 _QUESTION_TYPE_RE = re.compile(r"(单选题|多选题|填空题|解答题|判断题)")
-_DIFFICULTY_PAIR_RE = re.compile(r"(容易|适中|困难)\s*(?:[（(]\s*(0\.\d+)\s*[）)]|(0\.\d+))")
+_DIFFICULTY_PAIR_RE = re.compile(
+    r"(容易|适中|困难)\s*(?:[（(]\s*(0\.\d+)\s*[）)]|(0\.\d+))"
+)
 _QUESTION_NUM_RE = re.compile(r"(?:^|\n)\s*(?:#{1,6}\s*)?(\d+)\.\s")
 _FOOTER_RE = re.compile(
     r"(?:(?:您最近一年使用)|(?:今日|昨日|7日内)[\s|]*\d+次组卷|相似题\s*纠错|详情\s*收藏|加入试题篮).*$",
@@ -159,7 +161,11 @@ def _parse_question_structure(full_text: str) -> Dict[str, Any]:
 
     # 仅当题型/难度文本/难度分数都匹配成功时，才抽取 topic
     topic = None
-    if difficulty_text is not None and difficulty_score is not None and score_end is not None:
+    if (
+        difficulty_text is not None
+        and difficulty_score is not None
+        and score_end is not None
+    ):
         topic_src = after_type[score_end:]
         m_qnum = _QUESTION_NUM_RE.search(topic_src)
         if m_qnum:
@@ -366,7 +372,9 @@ def _collect_answer_sections(items: List[Dict[str, Any]]) -> tuple[List[str], st
 def _extract_question_with_fallback(items: List[Dict[str, Any]]) -> str:
     """Extract question text; fallback to full OCR text when structured parse fails."""
     full_content = _join_content_items(items)
-    parsed_question = _parse_question_structure(full_content).get("question", "").strip()
+    parsed_question = (
+        _parse_question_structure(full_content).get("question", "").strip()
+    )
     if parsed_question:
         return parsed_question
 

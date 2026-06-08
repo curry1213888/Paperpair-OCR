@@ -30,6 +30,7 @@ from typing import Any
 
 try:
     from dotenv import load_dotenv
+
     load_dotenv(override=False)
 except ImportError:
     pass
@@ -39,6 +40,7 @@ except ImportError:
 # ============================================================
 
 _HERE = Path(__file__).parent
+
 
 def _resolve(env_key: str, default: str) -> str:
     raw = os.environ.get(env_key) or default
@@ -215,7 +217,9 @@ def _fill_source_from_text_before_image_placeholder(
     prefix = question[:idx].strip()
     if not prefix:
         return
-    first_non_empty_line = next((ln.strip() for ln in prefix.splitlines() if ln.strip()), "")
+    first_non_empty_line = next(
+        (ln.strip() for ln in prefix.splitlines() if ln.strip()), ""
+    )
     if first_non_empty_line:
         record["source"] = first_non_empty_line
         # source 回填后，删除 question 中重复的来源首行。
@@ -258,7 +262,9 @@ def _collect_top_image_block(question_json_path: Path) -> Path | None:
     return None
 
 
-def _try_recover_metadata_from_top_images(parser: Any, question_json_path: Path) -> dict | None:
+def _try_recover_metadata_from_top_images(
+    parser: Any, question_json_path: Path
+) -> dict | None:
     """对顶部截图块补充 OCR，并二次匹配元数据结构；匹配成功才返回。"""
     from glmocr.utils.qa_pair_builder import parse_question_metadata
 
@@ -448,7 +454,7 @@ def main():
     print(f"\n{'='*40}")
     print(f"处理完成：成功 {success} 对，跳过 {failed} 对")
     if skipped:
-        print(f"\n跳过的题目：")
+        print("\n跳过的题目：")
         for image_id, reason in skipped:
             print(f"  - {image_id}  ({reason})")
     print(f"\nOCR 结果目录：{ocr_output_dir}")
