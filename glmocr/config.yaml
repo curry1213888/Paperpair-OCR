@@ -181,11 +181,10 @@ pipeline:
 
     # Detection threshold
     threshold: 0.3
-    # threshold_by_class:           # per-class threshold override
-    #   0: 0.5
-    #   1: 0.3
-    #   text: 0.5
-    #   table: 0.2
+    threshold_by_class:             # per-class threshold override
+      text: 0.25
+      inline_formula: 0.25
+      display_formula: 0.25
 
     # Processing
     # batch_size: max images per model forward pass (reduce to 1 if OOM)

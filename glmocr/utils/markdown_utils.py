@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -19,22 +18,10 @@ def _sanitize_stem(stem: str) -> str:
     return stem or "img"
 
 
-def _content_digest(source_path: Path) -> str:
-    """Return first 8 hex chars of SHA-256 over file bytes."""
-    digest = hashlib.sha256()
-    with open(source_path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            digest.update(chunk)
-    return digest.hexdigest()[:8]
-
-
 def image_prefix_from_source(source: str) -> str:
-    """Build a unique filename prefix: ``{stem}_{content_hash8}``.
+    """Build filename prefix from source stem only.
 
-    Same filename with different image content gets a different prefix,
-    so cropped assets do not collide across batch runs or folders.
-
-    Example: ``D:/data/1q1_question.png`` → ``1q1_question_a3f2b1c0`` (used as
+    Example: ``D:/data/33157823_question.png`` → ``33157823_question`` (used as
     ``{prefix}_idx0.jpg``, ``{prefix}_idx1.jpg``, …).
     """
     s = source
@@ -45,17 +32,7 @@ def image_prefix_from_source(source: str) -> str:
 
     path = Path(s)
     stem = _sanitize_stem(path.stem)
-
-    if path.is_file():
-        try:
-            tag = _content_digest(path)
-        except OSError:
-            tag = hashlib.sha256(str(path.resolve()).encode()).hexdigest()[:8]
-    else:
-        # URL or non-local path: hash the identifier string
-        tag = hashlib.sha256(s.encode()).hexdigest()[:8]
-
-    return f"{stem}_{tag}"
+    return stem
 
 
 def resolve_image_regions(

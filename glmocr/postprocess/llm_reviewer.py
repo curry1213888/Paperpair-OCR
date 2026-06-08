@@ -37,6 +37,25 @@ except ImportError:
 
 logger = get_logger(__name__)
 
+_SECTION_MARKERS = ("【答案】", "【分析】", "【详解】")
+
+
+def _fuzzy_replace(text: str, before: str, after: str) -> Optional[str]:
+    """将 before 中的连续空白归一化为 \\s+ 后在 text 中查找并替换为 after。
+
+    仅替换第一处匹配。若未找到则返回 None。
+    """
+    if not before.strip():
+        return None
+    tokens = before.split()
+    if not tokens:
+        return None
+    pattern = r"\s*".join(re.escape(t) for t in tokens)
+    match = re.search(pattern, text)
+    if match is None:
+        return None
+    return text[: match.start()] + after + text[match.end() :]
+
 
 class LLMReviewError(RuntimeError):
     """LLM 审核在全部重试后仍失败；调用方应中止本次 OCR，勿回退原始输出。"""
@@ -61,6 +80,10 @@ _SYSTEM_PROMPT = """\
 - figure_title（图题）应紧随对应的 image（图片）之后，例如图在前图题在后
 - 仅在顺序明显不合理时才修改，通过 (page, bbox_2d) 定位 item，给出新的 index 值
 - 不需要为每个 item 都输出 reorder，只输出需要调整 index 的 item
+- 重要：输入数据可能来自"答案图片"。答案图片中【答案】→【分析】→【详解】是固定的正确顺序（并非所有标注都会出现，但出现时顺序必定如此）。若已按此顺序排列，绝对不可对这几个标注之间的顺序做 reorder，这不是错误。
+- 仅允许用“显式标签文本”判断该规则：只有当 content 明确包含【答案】/【分析】/【详解】标记时，才可据此判断标签顺序。
+- 严禁语义归类重判：不得因为“看起来像详解/分析/答案”就把某段无标签文本判为其他版块并 reorder。
+
 
 【任务2】OCR文字逻辑纠错（ocr_fix）
 - 仅修正会导致明显逻辑错误的识别错误，例如：
@@ -69,13 +92,17 @@ _SYSTEM_PROMPT = """\
   * 单字误识别严重影响句意（需极高把握才改）
 - 不确定时宁可不改，禁止猜测性修改
 - 通过 (page, bbox_2d) 定位 item
+- ocr_fix 必须是“最小必要改动”：只改错误字符，不改无关文本
+- 严禁摘要、压缩、重写、改写语气；不得删除原有句子或段落
+- 若 before 含有结构标记（如【答案】【分析】【详解】），after 必须完整保留这些标记与文本结构
 
 硬性约束：
 1. 每条 change 必须通过 (page, bbox_2d) 精确定位输入中的一个 item
 2. content 为 null 的 item（图片区域）不允许做 ocr_fix
 3. 输出必须是严格合法 JSON，不含任何额外自然语言或 markdown 标记
 4. 低把握的修改不要输出（ocr_fix 的 confidence 需 ≥ 0.8）
-5. 只输出真正需要修改的 changes，无需修改时输出空数组\
+5. ocr_fix 的 after 必须是 before 的完整保留版，仅做局部修正，不得截断
+6. 只输出真正需要修改的 changes，无需修改时输出空数组\
 """
 
 _USER_PROMPT_TEMPLATE = """\
@@ -405,22 +432,54 @@ class LLMReviewer:
                     approved.append(change)
             elif ctype == "ocr_fix":
                 conf = float(change.get("confidence", 0))
-                if self.enable_ocr_fix and conf >= self.confidence_threshold:
-                    approved.append(change)
-                else:
+                if not (self.enable_ocr_fix and conf >= self.confidence_threshold):
                     logger.debug(
                         "拒绝低置信度 ocr_fix（%.2f < %.2f）：%s",
                         conf,
                         self.confidence_threshold,
                         change.get("reason", ""),
                     )
+                    continue
+
+                before = change.get("before")
+                after = change.get("after")
+                if not isinstance(before, str) or not isinstance(after, str):
+                    logger.debug("拒绝 ocr_fix：before/after 不是字符串")
+                    continue
+
+                before_stripped = before.strip()
+                after_stripped = after.strip()
+                if before_stripped and len(after_stripped) < int(len(before_stripped) * 0.85):
+                    logger.debug(
+                        "拒绝 ocr_fix：疑似截断（before=%d, after=%d）",
+                        len(before_stripped),
+                        len(after_stripped),
+                    )
+                    continue
+
+                missing_markers = [
+                    m for m in _SECTION_MARKERS if m in before and m not in after
+                ]
+                if missing_markers:
+                    logger.debug(
+                        "拒绝 ocr_fix：丢失段落标记 %s", ",".join(missing_markers)
+                    )
+                    continue
+
+                approved.append(change)
         return approved
 
     def _apply_approved_changes(self, original: list, approved_changes: list) -> list:
         """在原始数据上直接应用已批准的改动。
 
         - reorder：将指定 item 移到目标 index，其余 item 保持相对顺序填空。
-        - ocr_fix：按 (page, bbox) 精确定位并替换 content。
+        - ocr_fix：按 (page, bbox) 精确定位，优先做子串替换（before→after），
+          避免 LLM 返回局部片段时覆盖整段原文。
+          替换策略（按优先级）：
+            1. before 是原文精确子串 → str.replace(before, after, 1) 局部替换
+            2. before 空白归一化后是原文子串 → regex 模糊替换（容忍多余空格）
+            3. before 与原文完全相等 → 直接整段替换
+            4. 全部失败 → 跳过并记录 warning，原文保持不变
         """
         # 构建 (page, bbox) → item 查找表
         items_by_key: Dict[tuple, dict] = {}
@@ -430,7 +489,7 @@ class LLMReviewer:
 
         # 收集改动
         reorders: Dict[tuple, int] = {}
-        ocr_fixes: Dict[tuple, str] = {}
+        ocr_fixes: Dict[tuple, Dict[str, str]] = {}
         for change in approved_changes:
             key = (change.get("page", 0), tuple(change.get("bbox_2d") or []))
             if change.get("type") == "reorder":
@@ -439,12 +498,39 @@ class LLMReviewer:
                 except (ValueError, TypeError):
                     pass
             elif change.get("type") == "ocr_fix":
-                ocr_fixes[key] = change.get("after")
+                ocr_fixes[key] = {
+                    "before": change.get("before", ""),
+                    "after": change.get("after", ""),
+                }
 
-        # 应用 ocr_fix
-        for key, new_content in ocr_fixes.items():
-            if key in items_by_key:
-                items_by_key[key]["content"] = new_content
+        # 应用 ocr_fix（子串替换优先）
+        for key, fix in ocr_fixes.items():
+            if key not in items_by_key:
+                continue
+            item = items_by_key[key]
+            original_content: str = item.get("content") or ""
+            before: str = fix["before"]
+            after: str = fix["after"]
+
+            if before in original_content:
+                # 策略1：精确子串匹配
+                item["content"] = original_content.replace(before, after, 1)
+                logger.debug("ocr_fix：精确子串替换（page=%s bbox=%s）", key[0], key[1])
+            elif _fuzzy_replace(original_content, before, after) is not None:
+                # 策略2：空白归一化后匹配（容忍多余空格）
+                item["content"] = _fuzzy_replace(original_content, before, after)
+                logger.debug("ocr_fix：模糊子串替换（page=%s bbox=%s）", key[0], key[1])
+            elif original_content == before:
+                # 策略3：整段完全相等
+                item["content"] = after
+                logger.debug("ocr_fix：整段替换（page=%s bbox=%s）", key[0], key[1])
+            else:
+                logger.warning(
+                    "ocr_fix 跳过：before 在原文中未找到，原文保持不变（page=%s bbox=%s before=%r）",
+                    key[0],
+                    key[1],
+                    before[:80],
+                )
 
         if not reorders:
             return list(items_by_key.values())
