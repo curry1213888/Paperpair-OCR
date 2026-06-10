@@ -176,6 +176,57 @@ def unclip_boxes(boxes, unclip_ratio=None):
         return expanded_boxes
 
 
+def extend_boxes_left_to_boundary(boxes: np.ndarray) -> np.ndarray:
+    """Extend each box's left boundary (x1) to x=0 unless doing so would
+    overlap with the extension region of another box.
+
+    The extension region for box i is the strip (x=0, y1_i) → (x1_i, y2_i).
+    A collision is detected when another box j satisfies:
+      - x1_j < x1_i  (j starts inside the extension strip)
+      - y overlap:   y1_j < y2_i  AND  y2_j > y1_i
+
+    Args:
+        boxes: np.ndarray of shape (N, 6+) with columns
+               [cls_id, score, x1, y1, x2, y2, ...].
+
+    Returns:
+        Copy of *boxes* with x1 set to 0 wherever no collision was detected.
+    """
+    if len(boxes) == 0:
+        return boxes
+
+    result = boxes.copy()
+    n = len(boxes)
+
+    for i in range(n):
+        x1_i, y1_i, x2_i, y2_i = boxes[i, 2], boxes[i, 3], boxes[i, 4], boxes[i, 5]
+
+        # Nothing to extend if already at left edge
+        if x1_i <= 0:
+            continue
+
+        collides = False
+        for j in range(n):
+            if i == j:
+                continue
+            x1_j, y1_j, x2_j, y2_j = (
+                boxes[j, 2],
+                boxes[j, 3],
+                boxes[j, 4],
+                boxes[j, 5],
+            )
+            # j must start strictly inside the extension area (x1_j < x1_i)
+            # and have vertical overlap with box i
+            if x1_j < x1_i and y1_j < y2_i and y2_j > y1_i:
+                collides = True
+                break
+
+        if not collides:
+            result[i, 2] = 0.0
+
+    return result
+
+
 def apply_layout_postprocess(
     raw_results: List[Dict],
     id2label: Dict,
@@ -183,6 +234,7 @@ def apply_layout_postprocess(
     layout_nms: bool = True,
     layout_unclip_ratio: Union[float, Tuple[float, float], Dict] = None,
     layout_merge_bboxes_mode: Union[str, Dict] = None,
+    layout_extend_left_to_boundary: bool = False,
 ) -> List[List[Dict]]:
     """
     Apply layout post-processing to raw detection results.
@@ -346,6 +398,10 @@ def apply_layout_postprocess(
                     f"layout_unclip_ratio must be float, tuple, or dict, but got {type(layout_unclip_ratio)}"
                 )
             boxes_array = unclip_boxes(boxes_array, layout_unclip_ratio)
+
+        # Extend each box's left boundary to x=0 (unless blocked by another box)
+        if layout_extend_left_to_boundary:
+            boxes_array = extend_boxes_left_to_boundary(boxes_array)
 
         # Convert to PaddleOCR format
         img_width, img_height = img_size

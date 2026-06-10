@@ -72,7 +72,7 @@ class LLMReviewError(RuntimeError):
 _SYSTEM_PROMPT = """\
 你是专业的OCR结构化审核员，专注于数学和教育类文档。
 
-你的任务仅限于以下两种纠错，不做其他任何修改：
+你的任务仅限于以下三种纠错，不做其他任何修改：
 
 【任务1】阅读顺序纠错（reorder）
 - 根据 bbox_2d 坐标（格式：[x1, y1, x2, y2]，归一化坐标0-1000）判断阅读顺序
@@ -96,13 +96,39 @@ _SYSTEM_PROMPT = """\
 - 严禁摘要、压缩、重写、改写语气；不得删除原有句子或段落
 - 若 before 含有结构标记（如【答案】【分析】【详解】），after 必须完整保留这些标记与文本结构
 
+
+【任务3】切分框重叠导致的内容重复去除（dedup_fix）
+- 背景：版面切分时相邻检测框可能出现重叠，导致相邻 index 的内容出现重复。
+  典型表现：某个 item 的末尾文字与下一个 item 的开头文字高度相似（文字相近、语义相同、逻辑上不需要重复），
+  或某个较短的 item 的全部内容已经完整包含在相邻 item 中。
+- 判断原则：
+  * 重复片段文字相似度极高（即使格式略有差异，如一个有 LaTeX 标记一个没有）
+  * 逻辑上该内容只需出现一次，重复出现是切分框重叠造成的，而非刻意的重复强调
+  * 不确定时宁可不改
+- 修复策略（选对文档语义保留更完整的那个）：
+  A. 若某个 item 的全部内容都是相邻 item 内容的重复片段，则将该 item 的 content 改为空字符串 ""
+  B. 若某个 item 的末尾出现了与下一个 item 开头重复的片段，则将该 item 末尾的重复部分删除
+- 每处重复只输出一条 change，定位到需要截断或清空的那个 item
+- dedup_fix 的 after 允许比 before 短得多（这是去重的正常结果），甚至可以为 ""
+- 若 before 含有结构标记（如【答案】【分析】【详解】），after 必须完整保留这些标记
+
 硬性约束：
 1. 每条 change 必须通过 (page, bbox_2d) 精确定位输入中的一个 item
-2. content 为 null 的 item（图片区域）不允许做 ocr_fix
+2. content 为 null 的 item（图片区域）不允许做任何修改
 3. 输出必须是严格合法 JSON，不含任何额外自然语言或 markdown 标记
-4. 低把握的修改不要输出（ocr_fix 的 confidence 需 ≥ 0.8）
+4. 低把握的修改不要输出（ocr_fix / dedup_fix 的 confidence 需 ≥ 0.8）
 5. ocr_fix 的 after 必须是 before 的完整保留版，仅做局部修正，不得截断
-6. 只输出真正需要修改的 changes，无需修改时输出空数组\
+6. dedup_fix 的 after 是删除重复片段后的剩余内容，可以为空字符串
+7. 只输出真正需要修改的 changes，无需修改时输出空数组
+
+【关于 before / after 字段的严格要求】
+- before 必须与输入数据中对应 item 的 content 字段完全一致，做到一字不差、一个标点不差、一个空格不差、一个换行不差。
+  * 禁止对 before 做任何改动、简化、省略或重新排版
+  * 禁止改变 before 中反斜杠的数量：输入中有几个反斜杠，before 里就填几个反斜杠，不得增减
+  * before 必须是从输入 content 中原文复制，不得凭记忆或推断填写
+- after 必须是修改后的完整 content 内容，不得只写改动片段或用省略号代替未改动部分
+  * after 的长度应与 before 相近（ocr_fix）或更短（dedup_fix），绝不能更短地截断 before 的内容
+  * after 中的反斜杠数量规则与 before 相同：保持与 before 一致的转义方式，仅修改目标字符\
 """
 
 _USER_PROMPT_TEMPLATE = """\
@@ -122,12 +148,12 @@ _USER_PROMPT_TEMPLATE = """\
 {{
   "changes": [
     {{
-      "type": "reorder 或 ocr_fix",
+      "type": "reorder 或 ocr_fix 或 dedup_fix",
       "page": 整数,
       "bbox_2d": 数组（用于定位要修改的 item）,
       "field": "index 或 content",
-      "before": "修改前的值（字符串）",
-      "after": "修改后的值（字符串）",
+      "before": "从输入数据中原文逐字复制该 item 的 content，一字不差，反斜杠数量不变",
+      "after": "修改后的完整 content，不得省略或截断任何未改动的部分",
       "reason": "简短说明（中文）",
       "confidence": 0到1之间的小数
     }}
@@ -161,6 +187,7 @@ class LLMReviewer:
         timeout: int = 120,
         enable_reorder: bool = True,
         enable_ocr_fix: bool = True,
+        enable_dedup_fix: bool = True,
         disable_thinking: bool = True,
     ):
         self.model = model
@@ -173,6 +200,7 @@ class LLMReviewer:
         self.timeout = timeout
         self.enable_reorder = enable_reorder
         self.enable_ocr_fix = enable_ocr_fix
+        self.enable_dedup_fix = enable_dedup_fix
         self.disable_thinking = disable_thinking
         self._session = requests.Session()
 
@@ -224,6 +252,7 @@ class LLMReviewer:
                 timeout=int(os.environ.get("LLM_REVIEWER_TIMEOUT", "120")),
                 enable_reorder=_bool("LLM_REVIEWER_ENABLE_REORDER"),
                 enable_ocr_fix=_bool("LLM_REVIEWER_ENABLE_OCR_FIX"),
+                enable_dedup_fix=_bool("LLM_REVIEWER_ENABLE_DEDUP_FIX"),
                 disable_thinking=_bool("LLM_REVIEWER_DISABLE_THINKING", "true"),
             )
         except Exception as e:
@@ -281,15 +310,19 @@ class LLMReviewer:
                     "ocr_fix_count": sum(
                         1 for c in approved_changes if c.get("type") == "ocr_fix"
                     ),
+                    "dedup_fix_count": sum(
+                        1 for c in approved_changes if c.get("type") == "dedup_fix"
+                    ),
                     "changes": approved_changes,
                     "latency_ms": int((time.time() - t0) * 1000),
                     "retry_count": attempt,
                 }
                 logger.info(
-                    "LLM 审核完成：%d 处改动（%d reorder / %d ocr_fix），耗时 %.1fs",
+                    "LLM 审核完成：%d 处改动（%d reorder / %d ocr_fix / %d dedup_fix），耗时 %.1fs",
                     len(approved_changes),
                     report["reorder_count"],
                     report["ocr_fix_count"],
+                    report["dedup_fix_count"],
                     time.time() - t0,
                 )
                 return reviewed_pages, report
@@ -469,6 +502,34 @@ class LLMReviewer:
                     continue
 
                 approved.append(change)
+            elif ctype == "dedup_fix":
+                conf = float(change.get("confidence", 0))
+                if not (self.enable_dedup_fix and conf >= self.confidence_threshold):
+                    logger.debug(
+                        "拒绝低置信度 dedup_fix（%.2f < %.2f）：%s",
+                        conf,
+                        self.confidence_threshold,
+                        change.get("reason", ""),
+                    )
+                    continue
+
+                before = change.get("before")
+                after = change.get("after")
+                if not isinstance(before, str) or not isinstance(after, str):
+                    logger.debug("拒绝 dedup_fix：before/after 不是字符串")
+                    continue
+
+                # dedup_fix 允许 after 比 before 短很多（甚至为空），不做长度检查
+                missing_markers = [
+                    m for m in _SECTION_MARKERS if m in before and m not in after
+                ]
+                if missing_markers:
+                    logger.debug(
+                        "拒绝 dedup_fix：丢失段落标记 %s", ",".join(missing_markers)
+                    )
+                    continue
+
+                approved.append(change)
         return approved
 
     def _apply_approved_changes(self, original: list, approved_changes: list) -> list:
@@ -499,13 +560,14 @@ class LLMReviewer:
                     reorders[key] = int(change.get("after", -1))
                 except (ValueError, TypeError):
                     pass
-            elif change.get("type") == "ocr_fix":
+            elif change.get("type") in ("ocr_fix", "dedup_fix"):
                 ocr_fixes[key] = {
                     "before": change.get("before", ""),
                     "after": change.get("after", ""),
+                    "is_dedup": change.get("type") == "dedup_fix",
                 }
 
-        # 应用 ocr_fix（子串替换优先）
+        # 应用 ocr_fix / dedup_fix（子串替换优先）
         for key, fix in ocr_fixes.items():
             if key not in items_by_key:
                 continue
@@ -513,6 +575,14 @@ class LLMReviewer:
             original_content: str = item.get("content") or ""
             before: str = fix["before"]
             after: str = fix["after"]
+            is_dedup: bool = fix.get("is_dedup", False)
+
+            # dedup_fix 且 after 为空：整项清空，LLM 回传的 before 可能经过
+            # 归一化（如去掉 LaTeX 标记）导致匹配失败，直接按坐标定位并清空
+            if is_dedup and after == "":
+                item["content"] = ""
+                logger.debug("dedup_fix：整项清空（page=%s bbox=%s）", key[0], key[1])
+                continue
 
             if before in original_content:
                 # 策略1：精确子串匹配
@@ -527,12 +597,40 @@ class LLMReviewer:
                 item["content"] = after
                 logger.debug("ocr_fix：整段替换（page=%s bbox=%s）", key[0], key[1])
             else:
-                logger.warning(
-                    "ocr_fix 跳过：before 在原文中未找到，原文保持不变（page=%s bbox=%s before=%r）",
-                    key[0],
-                    key[1],
-                    before[:80],
-                )
+                # 策略4：归一化 LLM 双重转义的反斜杠后重试（\\before → \before）
+                norm_before = before.replace("\\\\", "\\")
+                norm_after = after.replace("\\\\", "\\")
+                if norm_before != before:
+                    if norm_before in original_content:
+                        item["content"] = original_content.replace(norm_before, norm_after, 1)
+                        logger.debug(
+                            "ocr_fix：反斜杠归一化后精确替换（page=%s bbox=%s）", key[0], key[1]
+                        )
+                    elif _fuzzy_replace(original_content, norm_before, norm_after) is not None:
+                        item["content"] = _fuzzy_replace(original_content, norm_before, norm_after)
+                        logger.debug(
+                            "ocr_fix：反斜杠归一化后模糊替换（page=%s bbox=%s）", key[0], key[1]
+                        )
+                    elif original_content == norm_before:
+                        item["content"] = norm_after
+                        logger.debug(
+                            "ocr_fix：反斜杠归一化后整段替换（page=%s bbox=%s）", key[0], key[1]
+                        )
+                    else:
+                        logger.warning(
+                            "ocr_fix 跳过：before 在原文中未找到（含归一化重试），原文保持不变"
+                            "（page=%s bbox=%s before=%r）",
+                            key[0],
+                            key[1],
+                            before[:80],
+                        )
+                else:
+                    logger.warning(
+                        "ocr_fix 跳过：before 在原文中未找到，原文保持不变（page=%s bbox=%s before=%r）",
+                        key[0],
+                        key[1],
+                        before[:80],
+                    )
 
         if not reorders:
             return list(items_by_key.values())
@@ -652,6 +750,7 @@ class LLMReviewer:
             "total_changes": 0,
             "reorder_count": 0,
             "ocr_fix_count": 0,
+            "dedup_fix_count": 0,
             "changes": [],
             "latency_ms": 0,
             "retry_count": 0,

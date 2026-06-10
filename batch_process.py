@@ -105,6 +105,24 @@ def _remove_ocr_output(ocr_output_dir: Path, stem: str) -> None:
         shutil.rmtree(target)
 
 
+def _flatten_ocr_items(data: Any) -> list[dict]:
+    """将 OCR json_result 展平为块列表（兼容单页与多页嵌套结构）。"""
+    if not isinstance(data, list):
+        return []
+    if data and isinstance(data[0], list):
+        flat: list[dict] = []
+        for page in data:
+            if isinstance(page, list):
+                flat.extend(item for item in page if isinstance(item, dict))
+        return flat
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _is_image_only_ocr_failure(items: list[dict]) -> bool:
+    """结果仅含单个 image 块时，视为 OCR 失败（未识别出有效文本/版面）。"""
+    return len(items) == 1 and items[0].get("label") == "image"
+
+
 def _ocr_and_save(parser, img_path: Path, ocr_output_dir: Path) -> Path:
     """对单张图片执行 OCR，保存结果到 ocr_output_dir，返回 JSON 路径。
 
@@ -114,6 +132,10 @@ def _ocr_and_save(parser, img_path: Path, ocr_output_dir: Path) -> Path:
         ocr_output_dir/{img_stem}/layout_vis/...
     """
     result = parser.parse(str(img_path), save_layout_visualization=True)
+    flat_items = _flatten_ocr_items(getattr(result, "json_result", None))
+    if _is_image_only_ocr_failure(flat_items):
+        raise ValueError("OCR 结果仅包含单个 image 块，视为 OCR 失败")
+
     result.save(output_dir=str(ocr_output_dir))
 
     stem = img_path.stem

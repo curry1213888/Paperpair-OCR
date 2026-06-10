@@ -124,9 +124,45 @@ pipeline:
     t_patch_size: 2
     patch_expand_factor: 1
     image_expect_length: 6144
-    image_format: JPEG # JPEG, PNG, WEBP
+    image_format: PNG # JPEG, PNG, WEBP
     min_pixels: 12544 # 112 * 112
     max_pixels: 71372800 # 14 * 14 * 4 * 1280
+
+    # Per-task min_pixels overrides (falls back to global min_pixels).
+    # Higher values force small formula/text crops to be upscaled before
+    # encoding so that fine details (primes, superscripts, degree symbols)
+    # survive the resize step.
+    task_min_pixels:
+      text: 200704    # 448 * 448
+      formula: 200704 # 448 * 448
+
+    # Long-image pre-splitting
+    # When a single image is taller than min_height_to_split (px) OR the
+    # aspect ratio (height/width) exceeds min_aspect_ratio, the image is
+    # automatically sliced into strips before layout detection and OCR.
+    # Each strip is processed as an independent page and results are merged.
+    long_image:
+      enabled: true
+      min_height_to_split: 2500   # 高度绝对值
+      min_aspect_ratio: 1.5       # 高/宽比
+      # PP-DocLayoutV3 always resizes all inputs to exactly 800x800.
+      # Vertical compression ratio = strip_height / 800 (independent of width).
+      # Standard A4 training pages are ~1754px tall -> 2.2x compression.
+      # max_compression_ratio_for_detector caps this:
+      #   2.0 -> max 1600px (conservative)
+      #   2.5 -> max 2000px (balanced, recommended)
+      #   3.0 -> max 2400px (at A4 training limit)
+      max_compression_ratio_for_detector: 1.8  # 800*1.8 → 1440px
+      max_strip_height: 2000      # 硬上限
+      min_strip_height: 200       # 尾部短于此则合并
+      # Blank-band detection: rows with mean brightness >= threshold AND
+      # std deviation < std_threshold are considered blank.
+      gap_brightness_threshold: 240  # 行均值亮度下限
+      gap_std_threshold: 15.0        # 行像素标准差上限
+      min_gap_rows: 8                # 最小连续空白行数
+      gap_search_margin: 200         # 在 ideal_bottom 上方多少px找空白带
+      padding: 0                     # 空白带中心切分（0=对称，正值向下偏移）
+      force_cut_overlap: 50        # 强制切时下一条 strip 的重叠量
 
     # Task-specific prompts
     task_prompt_mapping:
@@ -214,6 +250,13 @@ pipeline:
     layout_unclip_ratio:
       - 1.0
       - 1.0
+
+    # Extend each detected box's left boundary to the image left edge (x=0).
+    # The extension is skipped for a box if any other box already occupies
+    # the strip between x=0 and the box's current left boundary at the same
+    # vertical range (i.e. would cause an overlap).
+    #边界框向左延伸到图像左边缘
+    layout_extend_left_to_boundary: true
 
     # Merge mode for overlapping bboxes: "large" or "small"
     # Can be a single value or per-class dict

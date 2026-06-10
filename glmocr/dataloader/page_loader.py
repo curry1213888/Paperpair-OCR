@@ -18,6 +18,7 @@ from PIL import Image
 
 from glmocr.utils.image_utils import load_image_to_base64, pdf_to_images_pil
 from glmocr.utils.logging import get_logger, get_profiler
+from glmocr.utils.long_image_splitter import split_long_image
 
 Image.MAX_IMAGE_PIXELS = None
 if TYPE_CHECKING:
@@ -61,6 +62,7 @@ class PageLoader:
         self.image_format = config.image_format
         self.min_pixels = config.min_pixels
         self.max_pixels = config.max_pixels
+        self.task_min_pixels = getattr(config, "task_min_pixels", {}) or {}
 
         # API request parameters
         self.max_tokens = config.max_tokens
@@ -71,6 +73,9 @@ class PageLoader:
 
         # Task prompt mapping
         self.task_prompt_mapping = config.task_prompt_mapping
+
+        # Long-image pre-split config
+        self._long_image_cfg = getattr(config, "long_image", None)
 
     # =========================================================================
     # Page loading
@@ -149,16 +154,28 @@ class PageLoader:
     def _iter_source(self, source: Union[str, bytes]):
         """Yield pages from a single source one at a time."""
         if isinstance(source, bytes):
-            yield Image.open(BytesIO(source))
-            return
+            img = Image.open(BytesIO(source))
+        else:
+            img = self._load_image(source)
 
-        yield self._load_image(source)
+        cfg = self._long_image_cfg
+        if cfg is not None and getattr(cfg, "enabled", False):
+            for strip in split_long_image(img, cfg):
+                yield strip
+        else:
+            yield img
 
     def _load_source(self, source: Union[str, bytes]) -> List[Image.Image]:
-        """Load a single image source and return a single-page list."""
+        """Load a single image source; auto-split if it is a long image."""
         if isinstance(source, bytes):
-            return [Image.open(BytesIO(source))]
-        return [self._load_image(source)]
+            img = Image.open(BytesIO(source))
+        else:
+            img = self._load_image(source)
+
+        cfg = self._long_image_cfg
+        if cfg is not None and getattr(cfg, "enabled", False):
+            return split_long_image(img, cfg)
+        return [img]
 
     def _load_image(self, source: str) -> Image.Image:
         """Load a single image."""
@@ -255,13 +272,14 @@ class PageLoader:
         if self.task_prompt_mapping:
             prompt_text = self.task_prompt_mapping.get(task_type, "")
 
+        min_px = self.task_min_pixels.get(task_type, self.min_pixels)
         encoded_image = load_image_to_base64(
             image,
             t_patch_size=self.t_patch_size,
             max_pixels=self.max_pixels,
             image_format=self.image_format,
             patch_expand_factor=self.patch_expand_factor,
-            min_pixels=self.min_pixels,
+            min_pixels=min_px,
         )
 
         content: list = [

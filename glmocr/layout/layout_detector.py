@@ -50,6 +50,9 @@ class PPDocLayoutDetector(BaseLayoutDetector):
         self.batch_size = config.batch_size
 
         self.label_task_mapping = config.label_task_mapping
+        self.layout_extend_left_to_boundary = getattr(
+            config, "layout_extend_left_to_boundary", False
+        )
         self.id2label = getattr(config, "id2label", None)
 
         self._model = None
@@ -353,6 +356,7 @@ class PPDocLayoutDetector(BaseLayoutDetector):
                 layout_nms=self.layout_nms,
                 layout_unclip_ratio=self.layout_unclip_ratio,
                 layout_merge_bboxes_mode=self.layout_merge_bboxes_mode,
+                layout_extend_left_to_boundary=self.layout_extend_left_to_boundary,
             )
             all_paddle_format_results.extend(paddle_format_results)
 

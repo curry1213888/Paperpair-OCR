@@ -147,6 +147,23 @@ class MaaSApiConfig(_BaseConfig):
     connection_pool_size: int = 16
 
 
+class LongImageConfig(_BaseConfig):
+    """Configuration for long-image pre-splitting."""
+
+    enabled: bool = True
+    min_height_to_split: int = 3500
+    min_aspect_ratio: float = 3.0
+    max_compression_ratio_for_detector: float = 2.5
+    max_strip_height: int = 2800
+    min_strip_height: int = 600
+    gap_brightness_threshold: int = 240
+    gap_std_threshold: float = 15.0
+    min_gap_rows: int = 8
+    gap_search_margin: int = 400
+    padding: int = 0
+    force_cut_overlap: int = 150
+
+
 class PageLoaderConfig(_BaseConfig):
     max_tokens: int = 8192
     temperature: float = 0.0
@@ -157,11 +174,20 @@ class PageLoaderConfig(_BaseConfig):
     t_patch_size: int = 2
     patch_expand_factor: int = 1
     image_expect_length: int = 6144
-    image_format: str = "JPEG"
+    image_format: str = "PNG"
     min_pixels: int = 112 * 112
     max_pixels: int = 14 * 14 * 4 * 1280
 
     task_prompt_mapping: Optional[Dict[str, str]] = None
+
+    # Per-task image processing overrides.
+    # Keyed by task type (e.g. "text", "formula", "table").
+    # When a task type is not present, the global default is used.
+    # Recommended: set higher min_pixels for formula/text (e.g. 200704)
+    # so that small superscript marks (primes, degrees) survive resizing.
+    task_min_pixels: Dict[str, int] = Field(default_factory=dict)
+
+    long_image: LongImageConfig = Field(default_factory=LongImageConfig)
 
 
 class ResultFormatterConfig(_BaseConfig):
@@ -212,6 +238,7 @@ class LayoutConfig(_BaseConfig):
     layout_nms: bool = True
     layout_unclip_ratio: Optional[Any] = None
     layout_merge_bboxes_mode: Union[str, Dict[int, str]] = "large"
+    layout_extend_left_to_boundary: bool = False
     label_task_mapping: Optional[Dict[str, Any]] = None
     use_polygon: bool = False
     id2label: Optional[Dict[Union[int, str], str]] = None
