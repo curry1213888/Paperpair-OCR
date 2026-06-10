@@ -20,7 +20,7 @@ Strategy
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import List, Tuple
 
 import numpy as np
@@ -236,8 +236,7 @@ def split_long_image(
                 merged = img.crop((0, max(prev_top, 0), w, h))
                 strips.append(merged)
                 logger.debug(
-                    "Merged short tail (%dpx) into previous strip "
-                    "(new height=%d).",
+                    "Merged short tail (%dpx) into previous strip " "(new height=%d).",
                     tail_height,
                     merged.size[1],
                 )
@@ -305,7 +304,5 @@ def split_long_image(
         else:
             strip_top = max(0, actual_bottom - cfg.force_cut_overlap)
 
-    logger.info(
-        "Pre-split complete: %d strips from %dx%d image.", len(strips), w, h
-    )
+    logger.info("Pre-split complete: %d strips from %dx%d image.", len(strips), w, h)
     return strips

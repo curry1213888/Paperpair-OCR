@@ -199,7 +199,7 @@ def extend_boxes_left_to_boundary(boxes: np.ndarray) -> np.ndarray:
     n = len(boxes)
 
     for i in range(n):
-        x1_i, y1_i, x2_i, y2_i = boxes[i, 2], boxes[i, 3], boxes[i, 4], boxes[i, 5]
+        x1_i, y1_i, _, y2_i = boxes[i, 2], boxes[i, 3], boxes[i, 4], boxes[i, 5]
 
         # Nothing to extend if already at left edge
         if x1_i <= 0:
@@ -209,7 +209,7 @@ def extend_boxes_left_to_boundary(boxes: np.ndarray) -> np.ndarray:
         for j in range(n):
             if i == j:
                 continue
-            x1_j, y1_j, x2_j, y2_j = (
+            x1_j, y1_j, _, y2_j = (
                 boxes[j, 2],
                 boxes[j, 3],
                 boxes[j, 4],

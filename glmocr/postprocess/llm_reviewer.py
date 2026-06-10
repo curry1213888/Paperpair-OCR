@@ -602,19 +602,32 @@ class LLMReviewer:
                 norm_after = after.replace("\\\\", "\\")
                 if norm_before != before:
                     if norm_before in original_content:
-                        item["content"] = original_content.replace(norm_before, norm_after, 1)
-                        logger.debug(
-                            "ocr_fix：反斜杠归一化后精确替换（page=%s bbox=%s）", key[0], key[1]
+                        item["content"] = original_content.replace(
+                            norm_before, norm_after, 1
                         )
-                    elif _fuzzy_replace(original_content, norm_before, norm_after) is not None:
-                        item["content"] = _fuzzy_replace(original_content, norm_before, norm_after)
                         logger.debug(
-                            "ocr_fix：反斜杠归一化后模糊替换（page=%s bbox=%s）", key[0], key[1]
+                            "ocr_fix：反斜杠归一化后精确替换（page=%s bbox=%s）",
+                            key[0],
+                            key[1],
+                        )
+                    elif (
+                        _fuzzy_replace(original_content, norm_before, norm_after)
+                        is not None
+                    ):
+                        item["content"] = _fuzzy_replace(
+                            original_content, norm_before, norm_after
+                        )
+                        logger.debug(
+                            "ocr_fix：反斜杠归一化后模糊替换（page=%s bbox=%s）",
+                            key[0],
+                            key[1],
                         )
                     elif original_content == norm_before:
                         item["content"] = norm_after
                         logger.debug(
-                            "ocr_fix：反斜杠归一化后整段替换（page=%s bbox=%s）", key[0], key[1]
+                            "ocr_fix：反斜杠归一化后整段替换（page=%s bbox=%s）",
+                            key[0],
+                            key[1],
                         )
                     else:
                         logger.warning(
