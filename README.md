@@ -67,6 +67,23 @@ python -m venv .venv
 pip install -e ".[selfhosted]"
 ```
 
+### 开发环境（避免推送后 CI 格式化失败）
+
+本地 Black 行宽必须与 CI 一致（`pyproject.toml` → `[tool.black]`，`line-length = 88`）。**首次克隆后请执行一次：**
+
+```bash
+pip install -e ".[dev]"
+python scripts/setup_dev.py
+```
+
+这会安装 `pre-commit` 的 **commit / push 钩子**，在提交和推送前自动跑与 GitHub Actions 相同的检查。手动全量检查：
+
+```bash
+pre-commit run --all-files
+```
+
+常见踩坑：只改代码不跑 pre-commit，或 IDE 用了与项目不同的 Black 行宽，推送后 CI 的 Black 会失败。
+
 ### 安装 Ollama 并拉取模型
 
 1. 从 [ollama.com/download](https://ollama.com/download) 安装 Ollama
