@@ -20,7 +20,7 @@ repos:
     hooks:
       - id: black
         language_version: python3
-        args: ["--line-length=88"]
+        # 行宽等选项统一读取 pyproject.toml 的 [tool.black]，避免本地/CI 不一致
 
   - repo: https://github.com/pycqa/flake8
     rev: 7.0.0
