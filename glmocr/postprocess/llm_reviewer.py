@@ -176,9 +176,7 @@ def _texts_equivalent(a: str, b: str, threshold: float = 0.75) -> bool:
     return difflib.SequenceMatcher(None, na, nb).ratio() >= threshold
 
 
-def _is_adjacent_layout_dedup(
-    change: dict, content_by_index: Dict[Any, Any]
-) -> bool:
+def _is_adjacent_layout_dedup(change: dict, content_by_index: Dict[Any, Any]) -> bool:
     """dedup_fix 仅允许处理**相邻 item** 因切分框重叠产生的边界重复。
 
     拒绝：与非相邻 item 内容相似/相同（如【详解】末尾复述【答案】）而整项清空。
@@ -223,7 +221,7 @@ def _is_adjacent_layout_dedup(
     # 头/尾整段重复：当前长项的开头(或结尾)整段复制了相邻短项的全文，
     # dedup 把这段重复前缀(后缀)删掉。判定：被删掉的那段 == 相邻项全文。
     removed = before[: len(before) - len(after)] if before.endswith(after) else ""
-    removed_tail = before[len(after):] if before.startswith(after) else ""
+    removed_tail = before[len(after) :] if before.startswith(after) else ""
     if removed and prev_s and _texts_equivalent(removed, prev_s):
         return True
     if removed and next_s and _texts_equivalent(removed, next_s):
@@ -283,9 +281,7 @@ _BEFORE_AFTER_RULES = """\
 """
 
 # ── 阶段1：insert ──────────────────────────────────────────────────────────
-_SYSTEM_PROMPT_INSERT = (
-    _PROMPT_HEADER
-    + """
+_SYSTEM_PROMPT_INSERT = _PROMPT_HEADER + """
 
 【本阶段唯一任务】漏行补全（insert）
 你的目标是**找回 layout 漏框、没进 OCR 的整行/整块文字**。OCR 经常漏掉单独成行的公式、推导步骤、过渡句、标题等——请**主动、逐行**地把它们找出来补回，不要默认 OCR 已经识别全了。
@@ -314,7 +310,6 @@ _SYSTEM_PROMPT_INSERT = (
 2. 原图里清晰可见且 items 中确实缺失的整行，应当补（confidence 需 ≥ 0.7）；仅当原图辨认不清或无法判断插入位置时才不补。
 3. 确认本页确无漏行时才输出空数组——但在此之前务必已逐行对照过原图。\
 """
-)
 
 # ── 阶段2：ocr_fix ─────────────────────────────────────────────────────────
 _SYSTEM_PROMPT_OCR_FIX = (
@@ -388,9 +383,7 @@ _SYSTEM_PROMPT_DEDUP = (
 )
 
 # ── 阶段4：reorder ─────────────────────────────────────────────────────────
-_SYSTEM_PROMPT_REORDER = (
-    _PROMPT_HEADER
-    + """
+_SYSTEM_PROMPT_REORDER = _PROMPT_HEADER + """
 
 【本阶段唯一任务】阅读顺序纠错（reorder）
 - 对照原图**并结合 bbox_2d 坐标**，检查 items 的 index 阅读顺序是否与图中实际阅读顺序一致。
@@ -419,7 +412,6 @@ _SYSTEM_PROMPT_REORDER = (
 2. reorder 不需要 before 字段；new_index 为整数最终序号（0 起）。
 3. 低把握不调（confidence 需 ≥ 0.7）。无需调整时输出空数组。\
 """
-)
 
 
 # 各阶段 user 模板（公用输入区，仅输出 schema 不同）。
@@ -646,12 +638,8 @@ class LLMReviewer:
                 image_jpeg_quality=int(
                     os.environ.get("LLM_REVIEWER_IMAGE_JPEG_QUALITY", "85")
                 ),
-                response_format_json=_bool(
-                    "LLM_REVIEWER_RESPONSE_FORMAT_JSON", "true"
-                ),
-                enable_curl_fallback=_bool(
-                    "LLM_REVIEWER_ENABLE_CURL_FALLBACK", "true"
-                ),
+                response_format_json=_bool("LLM_REVIEWER_RESPONSE_FORMAT_JSON", "true"),
+                enable_curl_fallback=_bool("LLM_REVIEWER_ENABLE_CURL_FALLBACK", "true"),
                 disable_thinking=_bool("LLM_REVIEWER_DISABLE_THINKING", "true"),
             )
         except Exception as e:
@@ -704,12 +692,8 @@ class LLMReviewer:
             "multimodal": self.multimodal,
             "total_items": total_items,
             "total_changes": len(all_approved),
-            "ocr_fix_count": sum(
-                1 for c in all_approved if c.get("type") == "ocr_fix"
-            ),
-            "reorder_count": sum(
-                1 for c in all_approved if c.get("type") == "reorder"
-            ),
+            "ocr_fix_count": sum(1 for c in all_approved if c.get("type") == "ocr_fix"),
+            "reorder_count": sum(1 for c in all_approved if c.get("type") == "reorder"),
             "dedup_fix_count": sum(
                 1 for c in all_approved if c.get("type") == "dedup_fix"
             ),
@@ -877,7 +861,9 @@ class LLMReviewer:
                 raw_changes = [c for c in raw_changes if c.get("type") == stage]
 
                 if not self._validate_changes(raw_changes, items):
-                    raise ValueError("验证失败：changes 引用了不存在的 index/after_index")
+                    raise ValueError(
+                        "验证失败：changes 引用了不存在的 index/after_index"
+                    )
 
                 approved = self._filter_changes(raw_changes, items)
                 for c in approved:
@@ -1056,7 +1042,9 @@ class LLMReviewer:
                 try:
                     after_index = int(after_index)
                 except (ValueError, TypeError):
-                    logger.warning("insert 的 after_index 非法：%r", change.get("after_index"))
+                    logger.warning(
+                        "insert 的 after_index 非法：%r", change.get("after_index")
+                    )
                     return False
                 if after_index < -1 or after_index > n - 1:
                     logger.warning(
@@ -1094,7 +1082,9 @@ class LLMReviewer:
 
     def _filter_changes(self, changes: list, page_items: list) -> list:
         """按类型开关、置信度阈值与各类护栏过滤改动。"""
-        content_by_index = {item.get("index"): item.get("content") for item in page_items}
+        content_by_index = {
+            item.get("index"): item.get("content") for item in page_items
+        }
         approved = []
         for change in changes:
             ctype = change.get("type", "")
@@ -1161,9 +1151,7 @@ class LLMReviewer:
                     logger.debug("拒绝 reorder：index/new_index 不是合法整数")
                     continue
                 if orig_idx == new_idx:
-                    logger.debug(
-                        "拒绝 reorder：new_index 与 index 相同，顺序无需调整"
-                    )
+                    logger.debug("拒绝 reorder：new_index 与 index 相同，顺序无需调整")
                     continue
                 approved.append(change)
 
@@ -1182,7 +1170,9 @@ class LLMReviewer:
                     logger.debug("拒绝 dedup_fix：before/after 不是字符串")
                     continue
                 if content_by_index.get(change.get("index")) is None:
-                    logger.debug("拒绝 dedup_fix：目标 item content 为 null（图片区域）")
+                    logger.debug(
+                        "拒绝 dedup_fix：目标 item content 为 null（图片区域）"
+                    )
                     continue
                 if before == after:
                     logger.debug("拒绝 dedup_fix：before 与 after 相同，无需修改")
@@ -1431,9 +1421,7 @@ class LLMReviewer:
         try:
             return json.loads(body)
         except json.JSONDecodeError as e:
-            raise ValueError(
-                f"curl 返回内容不是合法 JSON：{body[:400]}"
-            ) from e
+            raise ValueError(f"curl 返回内容不是合法 JSON：{body[:400]}") from e
 
     def _empty_report(self) -> dict:
         return {
