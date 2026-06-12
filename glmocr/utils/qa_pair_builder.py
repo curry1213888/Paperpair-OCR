@@ -10,7 +10,7 @@ from typing import Any, Dict, List
 # 题型大类（仅匹配大类本身，不吞并后续文本）
 _QUESTION_TYPE_RE = re.compile(r"(单选题|多选题|填空题|解答题|判断题)")
 _DIFFICULTY_PAIR_RE = re.compile(
-    r"(容易|适中|困难)\s*(?:[（(]\s*(0\.\d+)\s*[）)]|(0\.\d+))"
+    r"(容易|适中|困难)\s*(?:[（(]\s*(0\s*\.\s*\d+)\s*[）)]|(0\s*\.\s*\d+))"
 )
 _QUESTION_NUM_RE = re.compile(r"(?:^|\n)\s*(?:#{1,6}\s*)?(\d+)\.\s")
 _FOOTER_RE = re.compile(
@@ -85,8 +85,26 @@ def _first_line_first_sentence(text: str) -> str:
 
 
 def _strip_markdown_heading_prefix(text: str) -> str:
-    """去掉每一行行首 Markdown 标题前缀（仅处理 '##' 及以上）。"""
-    return re.sub(r"(?m)^\s*#{2,6}\s*", "", text).strip()
+    """去掉每一行行首 Markdown 标题前缀（含单个 '#'）。"""
+    return re.sub(r"(?m)^\s*#{1,6}\s*", "", text).strip()
+
+
+def _strip_all_hash_chars(text: str) -> str:
+    """去掉文本中任意位置的 '#' 字符。"""
+    if "#" not in text:
+        return text
+    return text.replace("#", "").strip()
+
+
+def _strip_mingxiao(text: str | None) -> str | None:
+    """去掉文本中任意位置的「名校」噪声标记，并规整空白。"""
+    if text is None:
+        return None
+    if not isinstance(text, str):
+        return text
+    cleaned = text.replace("名校", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned or None
 
 
 def _clean_topic(topic: str | None) -> str | None:
@@ -94,22 +112,39 @@ def _clean_topic(topic: str | None) -> str | None:
     if not topic:
         return None
     cleaned = topic.replace("|", " ")
-    cleaned = cleaned.replace("名校", " ")
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-    return cleaned or None
+    return _strip_mingxiao(cleaned)
 
 
 def _sanitize_record_text_fields(record: Dict[str, Any]) -> Dict[str, Any]:
-    """统一清理 QA 结果中文本字段里的 Markdown 标题前缀。"""
-    for key in (
+    """统一清理 QA 结果中文本字段里的 Markdown 标题前缀与「名校」噪声。"""
+    meta_mingxiao_keys = (
         "question_type",
         "difficulty_text",
         "topic",
         "source",
+    )
+    for key in meta_mingxiao_keys:
+        value = record.get(key)
+        if isinstance(value, str):
+            record[key] = _strip_mingxiao(value)
+
+    meta_hash_keys = (
+        "question_type",
+        "difficulty_text",
+        "topic",
+        "source",
+    )
+    for key in meta_hash_keys:
+        value = record.get(key)
+        if isinstance(value, str):
+            record[key] = _strip_all_hash_chars(value)
+
+    content_hash_keys = (
         "question",
         "analysis",
         "Detailed explanation",
-    ):
+    )
+    for key in content_hash_keys:
         value = record.get(key)
         if isinstance(value, str):
             record[key] = _strip_markdown_heading_prefix(value)
@@ -133,10 +168,9 @@ def _parse_question_structure(full_text: str) -> Dict[str, Any]:
     if not raw:
         return _empty_question_structure()
 
-    # 保留换行用于题号定位，仅对单行段做空白归一化
+    # 保留换行用于题号定位；勿对全文做「数字.数字」合并（会把「4. 2026」误变成「4.2026」导致题号匹配失败）
     normalized = raw.replace("\u3000", " ")
     normalized = normalized.replace("（", "(").replace("）", ")")
-    normalized = re.sub(r"(\d)\s*\.\s*(\d)", r"\1.\2", normalized)
 
     m_type = _QUESTION_TYPE_RE.search(normalized)
     if not m_type:
@@ -146,7 +180,7 @@ def _parse_question_structure(full_text: str) -> Dict[str, Any]:
 
     before_type = normalized[: m_type.start()]
     source = _first_line_first_sentence(before_type.replace("\n", " ").strip()) or None
-    source = _strip_markdown_heading_prefix(source) if source else None
+    source = _strip_all_hash_chars(source) if source else None
 
     # 顺序向后匹配：题型 -> 难度文本+难度分数（必须紧邻，仅允许空格）
     after_type = normalized[m_type.end() :]
@@ -155,7 +189,9 @@ def _parse_question_structure(full_text: str) -> Dict[str, Any]:
     difficulty_score = None
     score_end = None
     if m_diff_pair:
-        score_str = m_diff_pair.group(2) or m_diff_pair.group(3)
+        score_str = (m_diff_pair.group(2) or m_diff_pair.group(3) or "").replace(
+            " ", ""
+        )
         difficulty_score = float(score_str)
         score_end = m_diff_pair.end()
 

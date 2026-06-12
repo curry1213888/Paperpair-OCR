@@ -197,8 +197,8 @@ def layout_worker(
                         use_polygon=use_polygon,
                     )
                     global_start_idx += len(batch_page_indices)
-                    for pi in batch_page_indices:
-                        state.images_dict.pop(pi, None)
+                    # NOTE: 不在此处释放 images_dict；每页原图需保留到 _emit_results
+                    # 供多模态审核器使用，统一在 release_unit_data 中释放。
                     batch_images, batch_page_indices, batch_unit_indices = [], [], []
 
             elif identifier == IDENTIFIER_UNIT_DONE:
@@ -214,8 +214,7 @@ def layout_worker(
                         use_polygon=use_polygon,
                     )
                     global_start_idx += len(batch_page_indices)
-                    for pi in batch_page_indices:
-                        state.images_dict.pop(pi, None)
+                    # NOTE: 同上，保留每页原图到 emit 阶段统一释放。
                     batch_images, batch_page_indices, batch_unit_indices = [], [], []
 
                 pages_for_unit = unit_page_indices.get(unit_idx, [])

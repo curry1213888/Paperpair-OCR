@@ -131,17 +131,31 @@ class PipelineState:
         with self._results_lock:
             return [list(self._results_by_page.get(pi, [])) for pi in page_indices]
 
+    def get_page_images(self, page_indices: List[int]) -> List[Any]:
+        """Return the original (detector-input) images for the given pages.
+
+        The image stored at ``images_dict[page_idx]`` is exactly the one fed to
+        the layout detector (post long-image splitting, so each entry is the
+        corresponding strip), which means its pixel space is aligned with the
+        ``bbox_2d`` coordinates of that page's regions.  Used by the multimodal
+        reviewer.  Missing pages yield ``None`` so the list stays aligned with
+        *page_indices*.
+        """
+        return [self.images_dict.get(pi) for pi in page_indices]
+
     def release_unit_data(self, page_indices: List[int]) -> None:
         """Release per-page data for a unit after it has been emitted.
 
-        Frees recognition results and layout results so that memory is not
-        held for the lifetime of the entire process() call.
+        Frees recognition results, layout results, and the retained original
+        page images so that memory is not held for the lifetime of the entire
+        process() call.
         """
         with self._results_lock:
             for pi in page_indices:
                 self._results_by_page.pop(pi, None)
         for pi in page_indices:
             self.layout_results_dict.pop(pi, None)
+            self.images_dict.pop(pi, None)
 
     # ------------------------------------------------------------------
     # Pre-cropped image store (for image-type regions)

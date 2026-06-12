@@ -375,12 +375,16 @@ class Pipeline:
             cropped_images = state.collect_cropped_images_for_unit(page_indices)
             raw_json = self._build_raw_json(grouped)
 
-            # LLM 审核器（可选）：在 result_formatter 之前纠正顺序与文字错误
+            # LLM 审核器（可选）：在 result_formatter 之前看图校对（角标补回 /
+            # 漏行补全 / 逻辑纠错）。每页的原图与该页 raw_json 的 bbox 天然对齐。
             reviewed_raw_json = None
             review_report = None
             process_grouped = grouped
             if getattr(self, "_reviewer", None) is not None:
-                reviewed_raw_json, review_report = self._reviewer.review(raw_json)
+                page_images = state.get_page_images(page_indices)
+                reviewed_raw_json, review_report = self._reviewer.review(
+                    raw_json, page_images
+                )
                 process_grouped = self._reviewer.apply_to_grouped(
                     grouped, reviewed_raw_json
                 )
