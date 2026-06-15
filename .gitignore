@@ -178,12 +178,11 @@ data/
 .DS_Store
 
 qa_output/
+batch_error/
+glmocr/tests/
 models/
 *.zip
-错误示例/
 /apps/
-/examples/result/
-/examples/source/*.pdf
-/examples/finetune/cosyn_chemical/
+/examples/
 /skills/
 /agent.md

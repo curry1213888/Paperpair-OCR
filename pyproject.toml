@@ -71,7 +71,6 @@ all = [
   "flask>=3.1.0",
 ]
 dev = [
-  "pytest>=9.0.0",
   "black>=26.3.0",
   "flake8>=7.0.0",
   "mypy>=1.19.0",
@@ -99,7 +98,3 @@ glmocr = ["config.yaml"]
 [tool.black]
 line-length = 88
 target-version = ["py310", "py311", "py312", "py313"]
-
-[tool.pytest.ini_options]
-testpaths = ["glmocr/tests"]
-python_files = ["test_*.py"]
