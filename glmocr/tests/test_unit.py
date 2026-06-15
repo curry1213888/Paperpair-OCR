@@ -99,6 +99,21 @@ class TestLayoutDeviceUnit:
         cfg = GlmOcrConfig.from_env()
         assert cfg.pipeline.layout.device == "cpu"
 
+    def test_env_var_sets_layout_model_dir(self, monkeypatch):
+        """GLMOCR_LAYOUT_MODEL_DIR env var propagates to config."""
+        from glmocr.config import GlmOcrConfig, _ENV_MAP, ENV_PREFIX
+
+        for suffix in _ENV_MAP:
+            monkeypatch.delenv(f"{ENV_PREFIX}{suffix}", raising=False)
+        monkeypatch.setattr("glmocr.config._find_dotenv", lambda: None)
+
+        monkeypatch.setenv(
+            "GLMOCR_LAYOUT_MODEL_DIR",
+            "D:/models/PP-DocLayoutV3_safetensors",
+        )
+        cfg = GlmOcrConfig.from_env()
+        assert cfg.pipeline.layout.model_dir == "D:/models/PP-DocLayoutV3_safetensors"
+
     def test_from_env_layout_device_kwarg(self, monkeypatch):
         """layout_device kwarg in from_env() sets device correctly."""
         from glmocr.config import GlmOcrConfig, _ENV_MAP, ENV_PREFIX
@@ -109,6 +124,27 @@ class TestLayoutDeviceUnit:
 
         cfg = GlmOcrConfig.from_env(layout_device="cuda:1")
         assert cfg.pipeline.layout.device == "cuda:1"
+
+    def test_env_var_sets_ocr_api_endpoint_fields(self, monkeypatch):
+        """GLMOCR_OCR_API_* env vars propagate to OCR endpoint config."""
+        from glmocr.config import GlmOcrConfig, _ENV_MAP, ENV_PREFIX
+
+        for suffix in _ENV_MAP:
+            monkeypatch.delenv(f"{ENV_PREFIX}{suffix}", raising=False)
+        monkeypatch.setattr("glmocr.config._find_dotenv", lambda: None)
+
+        monkeypatch.setenv("GLMOCR_OCR_API_HOST", "10.0.0.8")
+        monkeypatch.setenv("GLMOCR_OCR_API_PORT", "18080")
+        monkeypatch.setenv("GLMOCR_OCR_API_PATH", "/api/generate")
+        monkeypatch.setenv("GLMOCR_OCR_API_MODE", "ollama_generate")
+        monkeypatch.setenv("GLMOCR_OCR_MODEL", "glm-ocr:latest")
+
+        cfg = GlmOcrConfig.from_env()
+        assert cfg.pipeline.ocr_api.api_host == "10.0.0.8"
+        assert cfg.pipeline.ocr_api.api_port == 18080
+        assert cfg.pipeline.ocr_api.api_path == "/api/generate"
+        assert cfg.pipeline.ocr_api.api_mode == "ollama_generate"
+        assert cfg.pipeline.ocr_api.model == "glm-ocr:latest"
 
     # Minimal config kwargs for mocked detector tests
     _MOCK_LAYOUT_KWARGS = dict(

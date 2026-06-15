@@ -13,11 +13,17 @@
            （同上结构）
   3. 读取两份 JSON，拼接为 QA 记录，保存到 QA_OUTPUT_DIR/{image_id}.json
   4. 将该题问题/答案 OCR 结果中 imgs/ 下的裁剪图复制到 QA_OUTPUT_DIR/imgs/
+  5. 若 QA 输出已超过 BATCH_MAX_STORED_QUESTIONS 题，删除最旧一题（output + qa_output），再保留本次结果
+  6. 处理完成后删除 BATCH_INPUT_DIR 中该题对应的 question/answer 原图
+     成功：直接删除
+     失败/跳过：先复制到 BATCH_ERROR_DIR/{image_id}/（含 reason.txt），再删除
 
-路径通过 .env 文件配置（见 .env.example），三个变量：
-  BATCH_INPUT_DIR      — 存放输入图片的文件夹
-  BATCH_OCR_OUTPUT_DIR — OCR 结果输出文件夹
-  BATCH_QA_OUTPUT_DIR  — QA JSON 输出文件夹
+路径与容量通过 .env 文件配置（见 .env.example）：
+  BATCH_INPUT_DIR           — 存放输入图片的文件夹
+  BATCH_OCR_OUTPUT_DIR      — OCR 结果输出文件夹
+  BATCH_QA_OUTPUT_DIR       — QA JSON 输出文件夹
+  BATCH_ERROR_DIR           — 失败/跳过时原图备份目录
+  BATCH_MAX_STORED_QUESTIONS — output/qa_output 最多保留题数，超出时删最旧一题；-1 表示不限制
 """
 
 import json
@@ -48,9 +54,26 @@ def _resolve(env_key: str, default: str) -> str:
     return str(p if p.is_absolute() else _HERE / p)
 
 
+def _resolve_int(env_key: str, default: int) -> int:
+    raw = os.environ.get(env_key)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = int(str(raw).strip())
+    except ValueError:
+        return default
+    if value < 0:
+        return -1
+    if value == 0:
+        return default
+    return value
+
+
 INPUT_DIR = _resolve("BATCH_INPUT_DIR", "input")
 OCR_OUTPUT_DIR = _resolve("BATCH_OCR_OUTPUT_DIR", "output")
 QA_OUTPUT_DIR = _resolve("BATCH_QA_OUTPUT_DIR", "qa_output")
+ERROR_DIR = _resolve("BATCH_ERROR_DIR", "batch_error")
+MAX_STORED_QUESTIONS = _resolve_int("BATCH_MAX_STORED_QUESTIONS", 500)
 
 # ============================================================
 
@@ -328,6 +351,31 @@ def _is_skipped_record(record: dict) -> tuple[bool, str]:
     return False, ""
 
 
+def _delete_input_pair(question_img: Path, answer_img: Path) -> None:
+    """删除输入目录中的问题/答案原图。"""
+    for p in (question_img, answer_img):
+        if p.is_file():
+            p.unlink()
+
+
+def _archive_and_delete_input_pair(
+    error_dir: Path,
+    image_id: str,
+    question_img: Path,
+    answer_img: Path,
+    reason: str,
+) -> Path:
+    """失败时将原图复制到错误目录并删除输入目录中的文件。"""
+    dest_dir = error_dir / image_id
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    for p in (question_img, answer_img):
+        if p.is_file():
+            shutil.copy2(p, dest_dir / p.name)
+    (dest_dir / "reason.txt").write_text(reason, encoding="utf-8")
+    _delete_input_pair(question_img, answer_img)
+    return dest_dir
+
+
 def _remove_qa_output(qa_output_dir: Path, image_id: str) -> None:
     """删除 QA 输出 JSON 与该题汇总截图。"""
     out_file = qa_output_dir / f"{image_id}.json"
@@ -346,10 +394,76 @@ def _remove_qa_output(qa_output_dir: Path, image_id: str) -> None:
                     p.unlink()
 
 
+def _remove_question_output(ocr_output_dir: Path, image_id: str) -> None:
+    """删除一题在 OCR 输出目录中的 question/answer 子目录。"""
+    _remove_ocr_output(ocr_output_dir, f"{image_id}_question")
+    _remove_ocr_output(ocr_output_dir, f"{image_id}_answer")
+
+
+def _list_qa_records(qa_output_dir: Path) -> list[tuple[str, float]]:
+    """列出 QA 输出中的题目 ID 及其 JSON 修改时间。"""
+    records: list[tuple[str, float]] = []
+    for p in qa_output_dir.glob("*.json"):
+        if p.is_file():
+            records.append((p.stem, p.stat().st_mtime))
+    return records
+
+
+def _find_oldest_qa_record_id(
+    qa_output_dir: Path, *, exclude_image_id: str | None = None
+) -> str | None:
+    """返回最旧 QA 记录的 image_id；可排除指定题目。"""
+    candidates = [
+        (image_id, mtime)
+        for image_id, mtime in _list_qa_records(qa_output_dir)
+        if image_id != exclude_image_id
+    ]
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[1])
+    return candidates[0][0]
+
+
+def _trim_output_if_over_capacity(
+    ocr_output_dir: Path,
+    qa_output_dir: Path,
+    *,
+    keep_image_id: str,
+    max_questions: int = MAX_STORED_QUESTIONS,
+) -> list[str]:
+    """超过容量上限时，按最旧优先删除整题输出（output + qa_output）。"""
+    if max_questions < 0:
+        return []
+    removed: list[str] = []
+    while len(_list_qa_records(qa_output_dir)) > max_questions:
+        oldest_id = _find_oldest_qa_record_id(
+            qa_output_dir, exclude_image_id=keep_image_id
+        )
+        if oldest_id is None:
+            break
+        _remove_question_output(ocr_output_dir, oldest_id)
+        _remove_qa_output(qa_output_dir, oldest_id)
+        removed.append(oldest_id)
+    return removed
+
+
+def _handle_failure(
+    error_dir: Path,
+    image_id: str,
+    q_img: Path,
+    a_img: Path,
+    reason: str,
+) -> None:
+    dest = _archive_and_delete_input_pair(error_dir, image_id, q_img, a_img, reason)
+    print(f"  已备份到错误目录 → {dest}")
+    print(f"  已删除输入原图：{q_img.name}, {a_img.name}")
+
+
 def main():
     input_dir = Path(INPUT_DIR)
     ocr_output_dir = Path(OCR_OUTPUT_DIR)
     qa_output_dir = Path(QA_OUTPUT_DIR)
+    error_dir = Path(ERROR_DIR)
 
     if not input_dir.exists():
         print(f"[错误] 输入文件夹不存在：{input_dir}", file=sys.stderr)
@@ -357,6 +471,7 @@ def main():
 
     ocr_output_dir.mkdir(parents=True, exist_ok=True)
     qa_output_dir.mkdir(parents=True, exist_ok=True)
+    error_dir.mkdir(parents=True, exist_ok=True)
 
     # 扫描图片对
     matched, unmatched = _scan_pairs(input_dir)
@@ -397,9 +512,11 @@ def main():
                 print(f"  问题 OCR 完成 → {q_json.parent.relative_to(ocr_output_dir)}")
             except Exception as e:
                 _remove_ocr_output(ocr_output_dir, q_img.stem)
-                print(f"  [跳过] 问题 OCR 失败：{e}")
+                reason = f"问题 OCR 失败: {e}"
+                print(f"  [跳过] {reason}")
+                _handle_failure(error_dir, image_id, q_img, a_img, reason)
                 failed += 1
-                skipped.append((image_id, f"问题 OCR 失败: {e}"))
+                skipped.append((image_id, reason))
                 continue
 
             # --- OCR 答案图片 ---
@@ -409,9 +526,11 @@ def main():
             except Exception as e:
                 _remove_ocr_output(ocr_output_dir, q_img.stem)
                 _remove_ocr_output(ocr_output_dir, a_img.stem)
-                print(f"  [跳过] 答案 OCR 失败：{e}")
+                reason = f"答案 OCR 失败: {e}"
+                print(f"  [跳过] {reason}")
+                _handle_failure(error_dir, image_id, q_img, a_img, reason)
                 failed += 1
-                skipped.append((image_id, f"答案 OCR 失败: {e}"))
+                skipped.append((image_id, reason))
                 continue
 
             # --- 拼接 QA ---
@@ -420,9 +539,11 @@ def main():
             except Exception as e:
                 _remove_ocr_output(ocr_output_dir, q_img.stem)
                 _remove_ocr_output(ocr_output_dir, a_img.stem)
-                print(f"  [跳过] QA 拼接失败：{e}")
+                reason = f"QA 拼接失败: {e}"
+                print(f"  [跳过] {reason}")
+                _handle_failure(error_dir, image_id, q_img, a_img, reason)
                 failed += 1
-                skipped.append((image_id, f"QA 拼接失败: {e}"))
+                skipped.append((image_id, reason))
                 continue
 
             record = qa_array[0] if isinstance(qa_array, list) and qa_array else {}
@@ -453,9 +574,11 @@ def main():
                 _remove_ocr_output(ocr_output_dir, q_img.stem)
                 _remove_ocr_output(ocr_output_dir, a_img.stem)
                 _remove_qa_output(qa_output_dir, image_id)
-                print(f"  [跳过] QA 识别失败：{skip_reason}")
+                reason = f"QA 识别失败: {skip_reason}"
+                print(f"  [跳过] {reason}")
+                _handle_failure(error_dir, image_id, q_img, a_img, reason)
                 failed += 1
-                skipped.append((image_id, f"QA 识别失败: {skip_reason}"))
+                skipped.append((image_id, reason))
                 continue
 
             # --- 汇总裁剪图到 qa_output/imgs ---
@@ -469,8 +592,21 @@ def main():
             with open(out_file, "w", encoding="utf-8") as f:
                 json.dump(qa_array, f, ensure_ascii=False, indent=2)
 
+            evicted = _trim_output_if_over_capacity(
+                ocr_output_dir,
+                qa_output_dir,
+                keep_image_id=image_id,
+            )
+            if evicted:
+                print(
+                    f"  已超过 {MAX_STORED_QUESTIONS} 题，"
+                    f"已删除最旧题目 → {', '.join(evicted)}"
+                )
+
             print(f"  已复制 {img_count} 张截图 → {qa_imgs_dir}")
             print(f"  QA 已保存 → {out_file}")
+            _delete_input_pair(q_img, a_img)
+            print(f"  已删除输入原图：{q_img.name}, {a_img.name}")
             success += 1
 
     print(f"\n{'='*40}")
@@ -482,6 +618,7 @@ def main():
     print(f"\nOCR 结果目录：{ocr_output_dir}")
     print(f"QA  结果目录：{qa_output_dir}")
     print(f"截图汇总目录：{qa_output_dir / 'imgs'}")
+    print(f"失败备份目录：{error_dir}")
 
 
 if __name__ == "__main__":

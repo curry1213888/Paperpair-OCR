@@ -43,11 +43,15 @@ _ENV_MAP: Dict[str, str] = {
     "OCR_API_KEY": "pipeline.ocr_api.api_key",
     "OCR_API_HOST": "pipeline.ocr_api.api_host",
     "OCR_API_PORT": "pipeline.ocr_api.api_port",
+    "OCR_API_PATH": "pipeline.ocr_api.api_path",
+    "OCR_API_MODE": "pipeline.ocr_api.api_mode",
     "OCR_MODEL": "pipeline.ocr_api.model",
     # Allow overriding which GPU(s) the layout model uses
     "LAYOUT_CUDA_VISIBLE_DEVICES": "pipeline.layout.cuda_visible_devices",
     # Explicit device for layout model: "cpu", "cuda", "cuda:0", etc.
     "LAYOUT_DEVICE": "pipeline.layout.device",
+    # Local layout checkpoint directory or Hugging Face model id
+    "LAYOUT_MODEL_DIR": "pipeline.layout.model_dir",
     # Logging
     "LOG_LEVEL": "logging.level",
 }

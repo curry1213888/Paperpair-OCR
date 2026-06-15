@@ -212,6 +212,7 @@ pipeline:
     # PP-DocLayoutV3 model directory
     # Can be a local folder or a Hugging Face model id
     # (Use *_safetensors for Transformers; PaddlePaddle/PP-DocLayoutV3 is a PaddleOCR export)
+    # For a local checkpoint path, set GLMOCR_LAYOUT_MODEL_DIR in .env (do not commit machine paths here).
     model_dir: PaddlePaddle/PP-DocLayoutV3_safetensors
     device: cpu
 

@@ -178,5 +178,12 @@ data/
 .DS_Store
 
 qa_output/
+models/
 *.zip
 错误示例/
+/apps/
+/examples/result/
+/examples/source/*.pdf
+/examples/finetune/cosyn_chemical/
+/skills/
+/agent.md
